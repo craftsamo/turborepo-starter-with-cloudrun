@@ -29,7 +29,7 @@ src/
 ### Prerequisites
 
 - **Node.js**: v18 or higher
-- **Yarn**: v1.22 or higher (package manager)
+- **pnpm**: 11.5.3 or higher (via Corepack)
 - **Git**: For version control
 
 ### Installation
