@@ -24,11 +24,8 @@ export type Severity = 'verbose' | 'debug' | 'info' | 'error' | 'warn' | 'fatal'
 
 /**
  * Represents the format of log messages.
- *
- * Only `text` is supported. Extend this union (and add a corresponding output
- * path in `printMessage`) if structured formats are needed later.
  */
-export type LogFormat = 'text';
+export type LogFormat = 'text' | 'json';
 
 /**
  * Represents the arguments for printing a log message.
@@ -70,7 +67,6 @@ export interface LoggerOptions {
   level?: LogLevel;
   /**
    * The format of the log messages.
-   * @default 'text'
    */
   format?: LogFormat;
   /**
@@ -80,10 +76,178 @@ export interface LoggerOptions {
   enabled?: boolean;
 }
 
+export interface SourceLocation {
+  /**
+   * The file where the log entry was generated.
+   */
+  file: string;
+
+  /**
+   * The line number in the file where the log entry was generated.
+   */
+  line: string;
+
+  /**
+   * The function name where the log entry was generated.
+   */
+  function: string;
+}
+
+export interface HttpRequest {
+  /**
+   * The HTTP method of the request (e.g., GET, POST).
+   */
+  requestMethod: string;
+
+  /**
+   * The URL of the request.
+   */
+  requestUrl: string;
+
+  /**
+   * The size of the request in bytes.
+   */
+  requestSize: number;
+
+  /**
+   * The HTTP status code of the response.
+   */
+  status: number;
+
+  /**
+   * The size of the response in bytes.
+   */
+  responseSize: number;
+
+  /**
+   * The user agent string of the client making the request.
+   */
+  userAgent: string;
+
+  /**
+   * The IP address of the client making the request.
+   */
+  remoteIp: string;
+
+  /**
+   * The IP address of the server handling the request.
+   */
+  serverIp: string;
+
+  /**
+   * The latency of the request in seconds.
+   */
+  latency: string;
+
+  /**
+   * Whether the response was served from cache.
+   */
+  cacheLookup: boolean;
+
+  /**
+   * Whether the response was a cache hit.
+   */
+  cacheHit: boolean;
+
+  /**
+   * Whether the response was validated with the origin server.
+   */
+  cacheValidatedWithOriginServer: boolean;
+
+  /**
+   * The number of bytes returned from cache.
+   */
+  cacheFillBytes: number;
+
+  /**
+   * The protocol used for the request (e.g., HTTP/1.1, HTTP/2).
+   */
+  protocol: string;
+}
+
+export interface Operation {
+  /**
+   * The unique identifier for the operation.
+   */
+  id: string;
+
+  /**
+   * The producer of the operation.
+   */
+  producer: string;
+
+  /**
+   * Indicates if this is the first operation.
+   */
+  first: boolean;
+
+  /**
+   * Indicates if this is the last operation.
+   */
+  last: boolean;
+}
+
 /**
- * Free-form log context. Callers may attach any structured metadata.
+ * Represents the context of a log message.
  */
-export type LogContext = Record<string, unknown>;
+export interface LogContext {
+  /**
+   * HTTP request information.
+   */
+  httpRequest?: HttpRequest;
+
+  /**
+   * Source location information.
+   */
+  sourceLocation?: SourceLocation;
+
+  /**
+   * Trace information.
+   */
+  trace?: string;
+
+  /**
+   * Span ID information.
+   */
+  spanId?: string;
+
+  /**
+   * Indicates if the trace is sampled.
+   */
+  trace_sampled?: boolean;
+
+  /**
+   * Timestamp of the log entry.
+   */
+  time?: string;
+
+  /**
+   * Additional labels for the log entry.
+   */
+  labels?: Record<string, string>;
+
+  /**
+   * Unique identifier for the log entry.
+   */
+  insertId?: string;
+
+  /**
+   * Operation information.
+   */
+  operation?: Operation;
+
+  operationName?: string;
+
+  method?: string;
+
+  url?: string;
+
+  status?: number;
+
+  agent?: string | null;
+
+  [key: string]: unknown;
+}
 
 /**
  * Interface for a structured logger.
@@ -110,6 +274,19 @@ const logLevels: Record<LogLevel, number> = {
 function isPlainObject(obj: unknown): obj is Record<string, unknown> {
   return obj != null && Object.getPrototypeOf(obj) === Object.prototype;
 }
+
+/**
+ * Google Cloud Logging key prefixes for structured logging
+ */
+const GCP_LOGGING_KEYS = {
+  SOURCE_LOCATION: 'logging.googleapis.com/sourceLocation',
+  TRACE: 'logging.googleapis.com/trace',
+  SPAN_ID: 'logging.googleapis.com/spanId',
+  TRACE_SAMPLED: 'logging.googleapis.com/trace_sampled',
+  LABELS: 'logging.googleapis.com/labels',
+  INSERT_ID: 'logging.googleapis.com/insertId',
+  OPERATION: 'logging.googleapis.com/operation',
+} as const;
 
 /**
  * ANSI color codes for terminal output
@@ -170,9 +347,126 @@ export abstract class BaseLogger {
    * @param args - The arguments for the log message.
    */
   protected printMessage(args: PrintMessageArgs): void {
-    if (this.format === 'text') {
-      this.printText(args);
+    switch (this.format) {
+      case 'json':
+        this.printJson(args);
+        break;
+      case 'text':
+        this.printText(args);
+        break;
     }
+  }
+
+  /**
+   * Maps known logging context keys to their GCP logging equivalents.
+   */
+  private mapGcpLoggingParam(
+    key: string,
+    value: unknown,
+    output: Record<string, unknown>,
+  ): boolean {
+    switch (key) {
+      case 'sourceLocation':
+        if (isPlainObject(value)) {
+          output[GCP_LOGGING_KEYS.SOURCE_LOCATION] = value as unknown as SourceLocation;
+          return true;
+        }
+        break;
+      case 'trace':
+        if (typeof value === 'string') {
+          output[GCP_LOGGING_KEYS.TRACE] = value;
+          return true;
+        }
+        break;
+      case 'spanId':
+        if (typeof value === 'string') {
+          output[GCP_LOGGING_KEYS.SPAN_ID] = value;
+          return true;
+        }
+        break;
+      case 'trace_sampled':
+        if (typeof value === 'boolean') {
+          output[GCP_LOGGING_KEYS.TRACE_SAMPLED] = value;
+          return true;
+        }
+        break;
+      case 'labels':
+        if (isPlainObject(value)) {
+          output[GCP_LOGGING_KEYS.LABELS] = value as Record<string, string>;
+          return true;
+        }
+        break;
+      case 'insertId':
+        if (typeof value === 'string') {
+          output[GCP_LOGGING_KEYS.INSERT_ID] = value;
+          return true;
+        }
+        break;
+      case 'operation':
+        if (isPlainObject(value)) {
+          output[GCP_LOGGING_KEYS.OPERATION] = value as unknown as Operation;
+          return true;
+        }
+        break;
+      case 'httpRequest':
+        if (isPlainObject(value)) {
+          output.httpRequest = value as unknown as HttpRequest;
+          return true;
+        }
+        break;
+    }
+    return false;
+  }
+
+  protected printJson({ message, params, context, severity, stack }: PrintMessageArgs) {
+    const output: Record<string, unknown> = {
+      severity: severity.toUpperCase(),
+      time: new Date().toISOString(),
+      name: this.name,
+      message,
+    };
+
+    if (stack) {
+      output.stack_trace = stack;
+    }
+    if (context) {
+      output.context = context;
+    }
+
+    this.processJsonParams(params, output);
+    this.print(this.formatJson(output));
+  }
+
+  /**
+   * Processes parameters for JSON logging output.
+   */
+  private processJsonParams(params: unknown[], output: Record<string, unknown>): void {
+    for (const param of params) {
+      if (isPlainObject(param)) {
+        for (const [k, v] of Object.entries(param)) {
+          if (!this.mapGcpLoggingParam(k, v, output)) {
+            output[k] = v;
+          }
+        }
+      } else if (param) {
+        if (!Array.isArray(output.params)) {
+          output.params = [];
+        }
+        (output.params as unknown[]).push(param);
+      }
+    }
+  }
+
+  /**
+   * Prints the log message in JSON format.
+   * @param message - The log message.
+   * @param params - Additional parameters for the log message.
+   * @param context - The context of the log message.
+   * @param severity - The severity level of the log message.
+   * @param stack - The stack trace of the log message.
+   */
+  protected formatJson(output: Record<string, unknown>): string {
+    return JSON.stringify(output);
   }
 
   /**
@@ -489,10 +783,7 @@ export abstract class BaseLogger {
 }
 
 /**
- * A structured logger for Next.js applications.
- *
- * Reads `LOG_LEVEL` from the environment to control verbosity. Output is
- * always text (colorized for terminals).
+ * A structured logger for NextJS applications.
  */
 export class StructuredLogger extends BaseLogger {
   protected print(str: string) {
@@ -500,15 +791,181 @@ export class StructuredLogger extends BaseLogger {
   }
 
   /**
-   * Creates an instance of StructuredLogger.
+   * Creates an instance of NextStructuredLogger.
    * @param options - The options for the logger.
    */
   constructor(options: LoggerOptions = {}) {
     super({
       name: options.name || 'NextJS',
       logLevel: options.level || (process.env.LOG_LEVEL as LogLevel) || 'info',
-      format: options.format || 'text',
+      format: options.format || (process.env.LOG_FORMAT as LogFormat) || 'text',
     });
+  }
+
+  private sanitizeContextForOutput(
+    context: LogContext | null | undefined,
+    shown: {
+      hasOperationName: boolean;
+      hasAgent: boolean;
+      hasMethod: boolean;
+      hasStatus: boolean;
+      hasUrl: boolean;
+    },
+  ): LogContext | null {
+    if (!context) return null;
+
+    const sanitized: LogContext = { ...context };
+
+    if (shown.hasOperationName) {
+      delete sanitized.operationName;
+    }
+
+    if (shown.hasAgent) {
+      delete sanitized.agent;
+    }
+
+    if (shown.hasMethod) {
+      delete sanitized.method;
+    }
+
+    if (shown.hasStatus) {
+      delete sanitized.status;
+    }
+
+    if (shown.hasUrl) {
+      delete sanitized.url;
+    }
+
+    return sanitized;
+  }
+
+  private formatOperationLabel(context: LogContext | undefined): string | null {
+    if (context?.operationName) {
+      return context.operationName;
+    }
+
+    const url = context?.url ?? context?.httpRequest?.requestUrl;
+
+    if (url) {
+      return `"${url}"`;
+    }
+
+    return null;
+  }
+
+  private formatLogLine(message: string, context: LogContext | undefined): string {
+    const label = this.formatOperationLabel(context);
+    const agent = context?.agent ? this.formatUserAgent(context.agent) : null;
+    const method = context?.method ?? context?.httpRequest?.requestMethod;
+    const status = context?.status;
+    const parts = [label, agent].filter((part): part is string => Boolean(part));
+    const suffix = [method, status, message].filter(Boolean).join(' ');
+
+    if (!message) {
+      return [parts.join(' '), [method, status].filter(Boolean).join(' ')]
+        .filter(Boolean)
+        .join(' - ');
+    }
+
+    if (parts.length === 0) {
+      return suffix;
+    }
+
+    return `${parts.join(' ')} - ${suffix}`;
+  }
+
+  /**
+   * Logs a message with the specified severity level.
+   */
+  private logMessage(
+    message: string | Error,
+    context: LogContext | undefined,
+    severity: Severity,
+    logLevel: LogLevel,
+  ): void {
+    if (!this.isLevelEnabled(logLevel)) return;
+
+    const operationName = context?.operationName;
+
+    const shown = {
+      hasOperationName: Boolean(operationName),
+      hasAgent: context?.agent != null,
+      hasMethod: context?.method != null || context?.httpRequest?.requestMethod != null,
+      hasStatus: context?.status != null,
+      hasUrl: !operationName && (context?.url != null || context?.httpRequest?.requestUrl != null),
+    };
+
+    if (message instanceof Error) {
+      const {
+        message: msg,
+        stack,
+        params,
+        context: ctx,
+      } = this.extractMessagesWithStack([message, context]);
+      const sanitizedContext = this.sanitizeContextForOutput(ctx, shown);
+      this.printMessage({
+        message: this.formatLogLine(msg, ctx ?? context),
+        stack,
+        params,
+        context: sanitizedContext,
+        severity,
+      });
+    } else {
+      const { message: msg, params, context: ctx } = this.extractMessages([message, context]);
+      const sanitizedContext = this.sanitizeContextForOutput(ctx, shown);
+      this.printMessage({
+        message: this.formatLogLine(msg, ctx ?? context),
+        params,
+        context: sanitizedContext,
+        severity,
+      });
+    }
+  }
+
+  formatUserAgent(userAgent?: string | null) {
+    if (!userAgent) return 'Unknown';
+
+    // Priority regex for well-known tokens and version capture
+    const priorityRegex = new RegExp(
+      '\\b(Chrome|CriOS|Firefox|FxiOS|Safari|Version|Edg|Edge|OPR|Opera|PostmanRuntime|Postman|curl|Axios|Insomnia|Node|Node-fetch|Googlebot|Bingbot|Twitterbot)[/\\s_]?([0-9]+)',
+      'i',
+    );
+
+    // Generic Name/Version fallback
+    const genericRegex = new RegExp('([A-Za-z0-9\\-\\.]+)[/ ]([0-9]+)');
+
+    const normalize: Record<string, string> = {
+      CriOS: 'Chrome',
+      FxiOS: 'Firefox',
+      Edg: 'Edge',
+      OPR: 'Opera',
+      PostmanRuntime: 'Postman',
+      'Node-fetch': 'Node',
+      Node: 'Node',
+    };
+
+    const pMatch = userAgent.match(priorityRegex);
+    if (pMatch) {
+      let name = pMatch[1];
+      const ver = pMatch[2];
+      if (normalize[name]) name = normalize[name];
+
+      // Special case: when 'Version' token is present alongside 'Safari', prefer Version as major
+      if (/\bVersion\//i.test(userAgent) && /Safari/i.test(userAgent)) {
+        const v = userAgent.match(/Version\/([0-9]+)/i);
+        if (v && v[1]) return `Safari ${v[1]}`;
+      }
+
+      return ver ? `${name} ${ver}` : name;
+    }
+
+    const gMatch = userAgent.match(genericRegex);
+    if (gMatch) {
+      return `${gMatch[1]} ${gMatch[2]}`;
+    }
+
+    // Final fallback: first token
+    return userAgent.split(' ')[0];
   }
 
   /**
@@ -563,41 +1020,5 @@ export class StructuredLogger extends BaseLogger {
    */
   fatal(message: string | Error, context?: LogContext): void {
     this.logMessage(message, context, 'fatal', 'fatal');
-  }
-
-  /**
-   * Logs a message with the specified severity level.
-   */
-  private logMessage(
-    message: string | Error,
-    context: LogContext | undefined,
-    severity: Severity,
-    logLevel: LogLevel,
-  ): void {
-    if (!this.isLevelEnabled(logLevel)) return;
-
-    if (message instanceof Error) {
-      const {
-        message: msg,
-        stack,
-        params,
-        context: ctx,
-      } = this.extractMessagesWithStack([message, context]);
-      this.printMessage({
-        message: msg,
-        stack,
-        params,
-        context: ctx,
-        severity,
-      });
-    } else {
-      const { message: msg, params, context: ctx } = this.extractMessages([message, context]);
-      this.printMessage({
-        message: msg,
-        params,
-        context: ctx,
-        severity,
-      });
-    }
   }
 }
