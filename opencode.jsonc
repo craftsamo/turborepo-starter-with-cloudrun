@@ -5,6 +5,13 @@
     "apps/**/AGENTS.md",
     "packages/**/AGENTS.md"
   ],
+  "references": {
+    "upstream": {
+      "repository": "craftsamo/turborepo-starter",
+      "branch": "main",
+      "description": "Upstream turborepo-starter repository — use to compare fork-specific changes, verify upstream behavior, and assist with rebasing"
+    }
+  },
   "permission": {
     "edit": "ask",
     "bash": {
