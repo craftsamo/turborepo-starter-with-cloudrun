@@ -1,0 +1,121 @@
+name: Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        type: string
+        description: |
+          Specify the `name` property name of the app you want to deploy, separated by `,`. 
+          Valid values are the `name` field in `apps/**/package.json`.
+          example: web
+        required: true
+      environment:
+        type: environment
+        description: "Environment to deploy."
+        required: true
+
+jobs:
+  #############################################################################
+  #  Retrieve/extract data for this project                                   #
+  #############################################################################
+  get-details:
+    name: Get details
+    uses: ./.github/workflows/get-details.yml
+
+  #############################################################################
+  #  Validate input fields                                                    #
+  #############################################################################
+  validate:
+    name: Validate inputs
+    runs-on: ubuntu-latest
+    needs: [get-details]
+    timeout-minutes: 1
+    outputs:
+      targets: ${{ steps.validate-targets.outputs.targets }}
+    steps:
+      - name: Validate environment
+        run: |
+          ## If the value is empty, stop processing
+          if [ "${{ github.event.inputs.environment }}" == "" ]; then
+            echo '::error::`environment` must specify "production" or "development".'
+            exit 1
+          fi
+          ## Abort processing if "production" is specified for a branch other than `main`
+          if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+            if [ "${{ fromJson(needs.get-details.outputs.repository).ref_name }}" != "main" ]; then
+              echo '::error::`production` can only be specified for the `main` branch.'
+              exit 1
+            fi
+          fi
+      - name: Validate target field
+        id: validate-targets
+        run: |
+          VALID_TARGETS="$(echo '${{ needs.get-details.outputs.apps }}' | jq -r '.[].name')"
+          ## If the value is empty, stop processing
+          if [ "${{ github.event.inputs.targets }}" == "" ]; then
+            echo "::error::\`target\` must be one of $VALID_TARGETS."
+            exit 1
+          fi
+          ## Parse and validate the "targets" input from the workflow dispatch event.
+          TARGETS="${{ github.event.inputs.targets }}"
+          ## Check for invalid characters in the "targets" input (only alphanumeric and commas are allowed).
+          if [[ "$TARGETS" =~ [^,a-zA-Z0-9] ]]; then
+            echo "::error::Invalid separator detected in targets: $TARGETS"
+            exit 1
+          fi
+          ## Split the "targets" input into an array using commas as separators.
+          ## Initialize JSON array for matrix
+          IFS=',' read -ra TARGET_ARRAY <<< "$TARGETS"
+          JSON_ARRAY="["
+          FIRST=true
+          ## Iterate through each target value and check for validity.
+          for target in "${TARGET_ARRAY[@]}"; do
+            ## Validate targets: only targets in the array are considered valid.
+            found=false
+            while read -r valid; do
+              if [[ "$target" == "$valid" ]]; then
+                found=true
+                break
+              fi
+            done <<< "$VALID_TARGETS"
+            if ! $found; then
+              echo "::error::\`$target\` is an invalid value. Valid values are one of $VALID_TARGETS."
+              exit 1
+            fi
+            if [ "$FIRST" = true ]; then
+              JSON_ARRAY="$JSON_ARRAY\"$target\""
+              FIRST=false
+            else
+              JSON_ARRAY="$JSON_ARRAY,\"$target\""
+            fi
+          done
+          JSON_ARRAY="$JSON_ARRAY]"
+          echo "targets=$JSON_ARRAY" >> $GITHUB_OUTPUT
+          echo "Generated matrix: $JSON_ARRAY"
+
+  #############################################################################
+  #  Deploy target apps
+  #############################################################################
+  deploy-cloudrun:
+    name: Deploy Cloud Run
+    needs: [get-details, validate]
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      matrix:
+        target: ${{ fromJson(needs.validate.outputs.targets) }}
+    if: |
+      always() && 
+      needs.get-details.result == 'success' &&
+      needs.validate.result == 'success'
+    uses: ./.github/workflows/deployment-common.yml
+    with:
+      project_name: ${{ needs.get-details.outputs.project_name }}
+      environment: ${{ github.event.inputs.environment }}
+      app_name: ${{ matrix.target }}
+      app_version: ${{ fromJson(needs.get-details.outputs.apps_by_name)[matrix.target].lowercase_version }}
+      repo_name: ${{ fromJson(needs.get-details.outputs.repository).repo_name_lowercase }}
+      ref_name: ${{ fromJson(needs.get-details.outputs.repository).ref_name_lowercase }}
+    secrets: inherit

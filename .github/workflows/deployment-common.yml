@@ -1,0 +1,160 @@
+name: "Deployment Common"
+
+on:
+  workflow_call:
+    inputs:
+      project_name:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      app_name:
+        required: true
+        type: string
+      app_version:
+        required: true
+        type: string
+      repo_name:
+        required: true
+        type: string
+      ref_name:
+        required: true
+        type: string
+
+jobs:
+  #############################################################################
+  # Build the app and push the Docker image to Artifact Repository            #
+  #############################################################################
+  build-and-push:
+    name: Build and Push
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      ## Authenticate using the service account set up in `setup-google-cloud.sh`
+      - name: Auth GoogleCloud
+        id: auth-google-cloud
+        uses: google-github-actions/auth@v1
+        with:
+          token_format: "access_token"
+          workload_identity_provider: "projects/${{ secrets.GOOGLE_CLOUD_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ secrets.GOOGLE_CLOUD_IDENTITY_POOL_ID }}/providers/${{ secrets.GOOGLE_CLOUD_IDENTITY_PROVIDER_ID }}"
+          service_account: "${{ inputs.project_name }}-github-sa@${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}.iam.gserviceaccount.com"
+          project_id: "${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}"
+
+      ## Initially, an Artifact Repository will be created
+      - name: Create Artifacts Repository
+        run: |
+          if gcloud artifacts repositories describe "${{ inputs.repo_name }}" --location="${{ vars.GOOGLE_CLOUD_REGION }}" --project="${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}"; then
+            echo "Artifacts Repository exists"
+          else
+            gcloud artifacts repositories create ${{ inputs.repo_name }} \
+              --repository-format="docker" \
+              --location="${{ vars.GOOGLE_CLOUD_REGION }}" \
+              --project="${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}"
+          fi
+
+      - name: Auth Docker
+        uses: docker/login-action@v1
+        with:
+          username: "oauth2accesstoken"
+          password: "${{ steps.auth-google-cloud.outputs.access_token }}"
+          registry: "${{ vars.GOOGLE_CLOUD_REGION }}-docker.pkg.dev"
+
+      - name: Generate Image
+        id: generate_image
+        run: |
+          IMAGE_NAME="${{ vars.GOOGLE_CLOUD_REGION }}-docker.pkg.dev/${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}/${{ inputs.repo_name }}/${{ inputs.app_name }}/${{ inputs.environment }}"
+          echo "docker_image=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Set up buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build, tag, and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./apps/${{ inputs.app_name }}/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ steps.generate_image.outputs.docker_image }}:${{ inputs.app_version }}
+            ${{ steps.generate_image.outputs.docker_image }}:${{ github.sha }}
+            ${{ steps.generate_image.outputs.docker_image }}:latest
+          cache-from: type=gha,scope=${{ inputs.app_name }}-${{ inputs.ref_name }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.app_name }}-${{ inputs.ref_name }}
+
+      - name: Create Service declaration
+        run: |
+          APP_NAME="${{ inputs.app_name }}"
+          ENVIRONMENT="${{ inputs.environment }}"
+          PROJECT_NAME="${{ inputs.project_name }}"
+          export REPO_NAME="${{ inputs.repo_name }}"
+          GOOGLE_CLOUD_PROJECT_ID="${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}"
+          SERVICE="$PROJECT_NAME-$APP_NAME-$ENVIRONMENT"
+          GOOGLE_CLOUD_PROJECT_NUMBER="${{ secrets.GOOGLE_CLOUD_PROJECT_NUMBER }}"
+
+          ## Environment variables specific to `apps/web`
+          if [ "$APP_NAME" == "web" ]; then
+            export SERVICE_ACCOUNT="$PROJECT_NAME-cloudrun-sa@$GOOGLE_CLOUD_PROJECT_ID.iam.gserviceaccount.com"
+          fi
+
+          ## NOTE: ...increase as `apps/**` is added
+          ## Common environment variables by mode
+          DOMAIN="${{ vars.DOMAIN }}"
+          if [ "$ENVIRONMENT" == "production" ]; then
+            export BASE_URL="https://${DOMAIN:-"$PROJECT_NAME-$APP_NAME-$ENVIRONMENT-$GOOGLE_CLOUD_PROJECT_NUMBER.${{ vars.GOOGLE_CLOUD_REGION }}.run.app"}"
+          else
+            HOST=${DOMAIN:+dev.$DOMAIN}
+            export BASE_URL="https://${HOST:-$PROJECT_NAME-web-$ENVIRONMENT-$GOOGLE_CLOUD_PROJECT_NUMBER.${{ vars.GOOGLE_CLOUD_REGION }}.run.app}"
+          fi
+
+          ## Common environment variables
+          export LOG_FORMAT="json"
+
+          ## System
+          export GITHUB_SHA="${{ github.sha }}"
+          export CONTAINER_IMAGE="${{ steps.generate_image.outputs.docker_image }}:${{ github.sha }}"
+          export CLOUD_RUN_SERVICE_NAME="$SERVICE"
+          export GOOGLE_CLOUD_PROJECT_ID="$GOOGLE_CLOUD_PROJECT_ID"
+          export GOOGLE_CLOUD_PROJECT_NUMBER="$GOOGLE_CLOUD_PROJECT_NUMBER"
+          export ENVIRONMENT="$ENVIRONMENT"
+
+          envsubst < ./apps/$APP_NAME/service.yaml > service-$ENVIRONMENT.yaml
+
+      - name: Prepare and upsert secrets
+        run: |
+          GOOGLE_CLOUD_PROJECT_ID="${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}"
+          PREFIX="${{ inputs.repo_name }}-${{ inputs.environment }}"
+
+          set -euo pipefail
+          declare -A MAP
+
+          if [ "${{ inputs.app_name }}" == "web" ]; then
+            MAP["UPSTASH_REDIS_REST_URL"]="${{ secrets.UPSTASH_REDIS_REST_URL }}"
+            MAP["UPSTASH_REDIS_REST_TOKEN"]="${{ secrets.UPSTASH_REDIS_REST_TOKEN }}"
+          fi
+
+          for name in "${!MAP[@]}"; do
+            variable_name="$PREFIX-$name"
+            val="${MAP[$name]}"
+            if gcloud secrets describe "$variable_name" --project="$GOOGLE_CLOUD_PROJECT_ID" >/dev/null 2>&1; then
+              echo "Adding new version for secret: $variable_name"
+              printf '%s' "$val" | gcloud secrets versions add "$variable_name" --data-file=- --project="$GOOGLE_CLOUD_PROJECT_ID"
+            else
+              echo "Creating secret: $name"
+              printf '%s' "$val" | gcloud secrets create "$variable_name" --data-file=- --replication-policy="automatic" --project="$GOOGLE_CLOUD_PROJECT_ID"
+            fi
+          done
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        timeout-minutes: 5
+        with:
+          service: ${{ inputs.project_name }}-${{ inputs.app_name }}-${{ inputs.environment }}
+          region: ${{ vars.GOOGLE_CLOUD_REGION }}
+          metadata: service-${{ inputs.environment }}.yaml
+          project_id: ${{ secrets.GOOGLE_CLOUD_PROJECT_ID }}
