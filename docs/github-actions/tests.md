@@ -10,7 +10,7 @@
   `packages/**`
 - Or manual trigger via GitHub Actions UI (`workflow_dispatch`)
 - Node.js 20.x compatible environment
-- Yarn package manager with lock file present
+- pnpm package manager with lock file present
 
 ## How It Works
 
