@@ -1,0 +1,197 @@
+name: "Cleanup Build Cache"
+
+on:
+  workflow_dispatch:
+    inputs:
+      apps:
+        description: "Optional. Comma-separated app names to build scopes from (e.g., web,api). If omitted, all apps from the target branch will be used."
+        required: false
+        default: ""
+      max-age-days:
+        description: "Delete cache older than this number of days (integer)"
+        required: false
+        default: 30
+  schedule:
+    - cron: "0 3 1 * *" # Every month on the 1st at 03:00 UTC (change if necessary)
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  get-details:
+    uses: ./.github/workflows/get-details.yml
+    with:
+      event_name: cleanup-cache
+
+  cleanup-caches:
+    needs: get-details
+    name: Cleanup matching GHA caches
+    runs-on: ubuntu-latest
+    steps:
+      - name: "List & delete matching caches"
+        uses: actions/github-script@v6
+        env:
+          APPS_JSON: ${{ needs.get-details.outputs.apps }}
+          BRANCH_NAME: "${{ fromJson(needs.get-details.outputs.repository).ref_name }}"
+        with:
+          script: |
+            const isSchedule = context.eventName === 'schedule';
+            let scopeFilter = "";
+            let maxAgeDays;
+
+            if (isSchedule) {
+              maxAgeDays = 30;
+              core.info('Schedule run detected: deleting all caches older than 30 days regardless of scope');
+            } else {
+              maxAgeDays = parseInt((context.payload && context.payload.inputs && context.payload.inputs['max-age-days']) || process.env.INPUT_MAX_AGE_DAYS || "30", 10);
+
+              // Build scope(s) from inputs
+              const appsInput = (context.payload && context.payload.inputs && context.payload.inputs.apps) || process.env.INPUT_APPS || "";
+              // Use branch from get-details output (BRANCH_NAME) when available, else fall back to input/env
+              const branchInput = (process.env.BRANCH_NAME || "") || (context.payload && context.payload.inputs && context.payload.inputs.branch) || process.env.INPUT_BRANCH || "";
+              // Normalize branch for matching cache scope naming (lowercase, slashes -> hyphens)
+              const branchInputNormalized = (branchInput || "").toLowerCase().replace(/\//g, '-');
+
+              let apps = [];
+              if (appsInput) {
+                apps = appsInput.split(',').map(s => s.trim()).filter(Boolean);
+              } else {
+                core.info('No apps provided — discovering apps from get-details outputs');
+                try {
+                  const appsJson = process.env.APPS_JSON || '[]';
+                  const parsed = JSON.parse(appsJson);
+                  if (Array.isArray(parsed)) {
+                    apps = parsed.map(a => a.name).filter(Boolean);
+                  }
+                } catch (err) {
+                  core.warning(`Failed to parse APPS_JSON: ${err.message}`);
+                }
+              }
+
+              if (apps.length === 0) {
+                core.setFailed('No apps found to build scopes from');
+                return;
+              }
+
+                // Build filter using normalized branch name to match scopes stored with normalized branch
+                scopeFilter = apps.map(a => `${a}-${branchInputNormalized}`).join('|');
+                core.info(`Manual run: built scope filter from apps and branch: ${scopeFilter}`);
+
+              core.info(`Deleting caches older than ${maxAgeDays} days`);
+            }
+
+            const perPage = 100;
+            let page = 1;
+            let allCaches = [];
+
+            while (true) {
+              const res = await github.request('GET /repos/{owner}/{repo}/actions/caches', {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: perPage,
+                page
+              });
+
+              const pageCaches = res.data.actions_caches || res.data.caches || res.data;
+              if (!pageCaches || pageCaches.length === 0) break;
+              allCaches = allCaches.concat(pageCaches);
+              if (pageCaches.length < perPage) break;
+              page++;
+            }
+
+            core.info(`Found ${allCaches.length} cache entries in repository`);
+
+            const cutoff = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+
+            // Fetch repository branches (normalized) to detect deleted branches
+            const branchNames = [];
+            let bpage = 1;
+            while (true) {
+              const brRes = await github.request('GET /repos/{owner}/{repo}/branches', {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100,
+                page: bpage
+              });
+              const brs = brRes.data || [];
+              if (!brs || brs.length === 0) break;
+              branchNames.push(...brs.map(b => (b.name || '').toLowerCase().replace(/\//g, '-')));
+              if (brs.length < 100) break;
+              bpage++;
+            }
+            const branchSet = new Set(branchNames);
+
+            // Build a set of requested app-branch scopes from the manual inputs (if any)
+            const requestedScopes = (scopeFilter || "").split('|').map(s => s.trim()).filter(Boolean);
+
+            let deleted = 0;
+            for (const c of allCaches) {
+              const scope = c.scope || c.key || "";
+              const id = c.id || c.cache_id || c.key;
+              const createdAt = c.created_at || c.createdAt || c.created || null;
+              if (!id) continue;
+
+              if (!createdAt) {
+                core.info(`Skipping cache id=${id} (no created_at)`);
+                continue;
+              }
+
+              const createdTs = new Date(createdAt).getTime();
+              if (Number.isNaN(createdTs)) {
+                core.info(`Skipping cache id=${id} (invalid created_at)`);
+                continue;
+              }
+
+              if (createdTs > cutoff) {
+                core.info(`Keeping cache id=${id} scope='${scope}' created_at=${createdAt} (not old enough)`);
+                continue;
+              }
+
+              let shouldDelete = false;
+
+              if (isSchedule) {
+                shouldDelete = true;
+              } else {
+                // Match if scope is requested
+                const matchedByRequested = requestedScopes.some(f => f && scope.includes(f));
+                if (matchedByRequested) {
+                  shouldDelete = true;
+                } else {
+                  // Also delete if scope looks like "app-branch" and that branch no longer exists
+                  const m = scope.match(/^([^-]+)-(.+)$/);
+                  if (m) {
+                    const appPart = m[1];
+                    // Normalize branch part before checking against repository branches list
+                    const branchPart = m[2].toLowerCase().replace(/\//g, '-');
+                    if (!branchSet.has(branchPart)) {
+                      core.info(`Cache scope '${scope}' refers to deleted branch '${branchPart}' — will delete`);
+                      shouldDelete = true;
+                    }
+                  }
+                }
+              }
+
+              if (!shouldDelete) {
+                core.info(`Skipping cache id=${id} scope='${scope}' (does not match filters and not deleted-branch)`);
+                continue;
+              }
+
+              try {
+                core.info(`Deleting cache id=${id} scope='${scope}' created_at=${createdAt}`);
+                await github.request('DELETE /repos/{owner}/{repo}/actions/caches/{cache_id}', {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  cache_id: id
+                });
+                deleted++;
+              } catch (err) {
+                core.warning(`Failed to delete cache id=${id}: ${err.message}`);
+              }
+            }
+
+            if (isSchedule) {
+              core.info(`Finished. Deleted ${deleted} caches older than ${maxAgeDays} days (schedule run).`);
+            } else {
+              core.info(`Finished. Deleted ${deleted} caches matching requested scopes or belonging to deleted branches older than ${maxAgeDays} days.`);
+            }
