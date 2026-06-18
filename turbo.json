@@ -1,7 +1,20 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
-  "globalEnv": ["BASE_URL", "LOG_LEVEL"],
+  "globalEnv": [
+    "BASE_URL",
+    "LOG_LEVEL",
+    "LOG_FORMAT",
+    "GITHUB_SHA",
+    "ENVIRONMENT",
+    "CLOUD_RUN_SERVICE_NAME"
+  ],
+  "globalPassThroughEnv": [
+    "CONTAINER_IMAGE",
+    "GOOGLE_CLOUD_PROJECT_ID",
+    "GOOGLE_CLOUD_PROJECT_NUMBER",
+    "CLOUD_RUN_SERVICE_ACCOUNT"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
