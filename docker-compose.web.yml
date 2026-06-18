@@ -1,6 +1,6 @@
 services:
   web:
-    container_name: turborepo-starter-web
+    container_name: turborepo-starter-with-cloudrun-web
     image: web:latest
     build:
       context: .

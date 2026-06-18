@@ -1,5 +1,5 @@
 {
-  "name": "turborepo-starter",
+  "name": "turborepo-starter-with-cloudrun",
   "description": "Boilerplate for streamlined development of Turborepo applications with best practices and curated configurations.",
   "author": "craftsamo",
   "license": "MIT",
