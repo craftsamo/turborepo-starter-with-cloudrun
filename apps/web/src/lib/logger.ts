@@ -24,6 +24,9 @@ export type Severity = 'verbose' | 'debug' | 'info' | 'error' | 'warn' | 'fatal'
 
 /**
  * Represents the format of log messages.
+ *
+ * `text` is the default for local development; `json` is used on Cloud Run so
+ * logs are picked up by Google Cloud Logging as structured entries.
  */
 export type LogFormat = 'text' | 'json';
 
@@ -67,6 +70,7 @@ export interface LoggerOptions {
   level?: LogLevel;
   /**
    * The format of the log messages.
+   * @default 'text'
    */
   format?: LogFormat;
   /**
@@ -75,6 +79,10 @@ export interface LoggerOptions {
    */
   enabled?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Cloud Run / GCP Logging extensions
+// ---------------------------------------------------------------------------
 
 export interface SourceLocation {
   /**
@@ -189,6 +197,9 @@ export interface Operation {
 
 /**
  * Represents the context of a log message.
+ *
+ * The base is a free-form record; the optional fields below map to Google
+ * Cloud Logging structured-log keys and to the proxy/middleware log shape.
  */
 export interface LogContext {
   /**
@@ -248,6 +259,10 @@ export interface LogContext {
 
   [key: string]: unknown;
 }
+
+// ---------------------------------------------------------------------------
+// Logger interfaces
+// ---------------------------------------------------------------------------
 
 /**
  * Interface for a structured logger.
@@ -357,6 +372,10 @@ export abstract class BaseLogger {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Cloud Run / GCP JSON output
+  // -------------------------------------------------------------------------
+
   /**
    * Maps known logging context keys to their GCP logging equivalents.
    */
@@ -458,16 +477,15 @@ export abstract class BaseLogger {
   }
 
   /**
-   * Prints the log message in JSON format.
-   * @param message - The log message.
-   * @param params - Additional parameters for the log message.
-   * @param context - The context of the log message.
-   * @param severity - The severity level of the log message.
-   * @param stack - The stack trace of the log message.
+   * Formats the JSON output as a string.
    */
   protected formatJson(output: Record<string, unknown>): string {
     return JSON.stringify(output);
   }
+
+  // -------------------------------------------------------------------------
+  // Text output (shared with the generic upstream logger)
+  // -------------------------------------------------------------------------
 
   /**
    * Prints the log message in text format.
@@ -783,7 +801,11 @@ export abstract class BaseLogger {
 }
 
 /**
- * A structured logger for NextJS applications.
+ * A structured logger for Next.js applications.
+ *
+ * Reads `LOG_LEVEL` and `LOG_FORMAT` from the environment. Output is colorized
+ * text for local development (`LOG_FORMAT=text`, the default) or JSON for
+ * Cloud Run (`LOG_FORMAT=json`).
  */
 export class StructuredLogger extends BaseLogger {
   protected print(str: string) {
@@ -791,7 +813,7 @@ export class StructuredLogger extends BaseLogger {
   }
 
   /**
-   * Creates an instance of NextStructuredLogger.
+   * Creates an instance of StructuredLogger.
    * @param options - The options for the logger.
    */
   constructor(options: LoggerOptions = {}) {
@@ -801,6 +823,10 @@ export class StructuredLogger extends BaseLogger {
       format: options.format || (process.env.LOG_FORMAT as LogFormat) || 'text',
     });
   }
+
+  // -------------------------------------------------------------------------
+  // Proxy / middleware log shaping (Cloud Run with-proxy variant)
+  // -------------------------------------------------------------------------
 
   private sanitizeContextForOutput(
     context: LogContext | null | undefined,
