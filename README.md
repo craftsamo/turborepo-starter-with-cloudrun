@@ -30,6 +30,8 @@ configurations.
   (`.agents/skills/`, `.claude/skills/`) are generated on `pnpm install`
   (POSIX symlink / Windows junction, no admin needed); per-package `AGENTS.md`
   is auto-loaded as instructions
+- **Cloud Run Deployment**: Google Cloud Run deployment pipeline with Workload
+  Identity Federation and Secret Manager
 - **Best Practices**: Optimized configurations and development guidelines
 
 ## 🛠 Tech Stack
@@ -46,11 +48,12 @@ configurations.
 - **Testing**: Vitest
 - **Code Quality**: ESLint, Prettier
 - **Git Hooks**: Husky with conventional commits
+- **Deployment**: Google Cloud Run with Artifact Registry and Secret Manager
 
 ## 📁 Project Structure
 
 ```
-turborepo-starter/
+turborepo-starter-with-cloudrun/
 ├── apps/
 │   └── web/               # Next.js web application
 ├── packages/
@@ -61,8 +64,11 @@ turborepo-starter/
 │   ├── types/             # Shared TypeScript types
 │   ├── ui/                # Shared UI components (Shadcn/ui)
 │   └── vitest/            # Shared Vitest configuration
+├── scripts/
+│   └── setup-google-cloud.sh  # Google Cloud resource initialization
 ├── docs/
 │   ├── github-actions/    # GitHub Actions workflow documentation
+│   ├── images/            # Documentation images
 │   └── instructions/      # GitHub-workflow guidelines for AI agents (GENERAL/ISSUE/TASK/REVIEW)
 ├── .opencode/             # opencode skills and agent config
 ├── .github/               # GitHub Actions workflows
@@ -81,8 +87,8 @@ turborepo-starter/
 1. **Clone the repository**
 
 ```sh
-git clone https://github.com/craftsamo/turborepo-starter.git
-cd turborepo-starter
+git clone https://github.com/craftsamo/turborepo-starter-with-cloudrun.git
+cd turborepo-starter-with-cloudrun
 ```
 
 2. **Install Dependencies**
@@ -125,13 +131,15 @@ The web app reads runtime configuration from `apps/web/.env`. See
 Set the following variables in your GitHub repository settings under
 **Settings > Secrets and variables > Variables**:
 
-| Variable             | Default                    |
-| -------------------- | -------------------------- |
-| `AI_PROVIDER_ID`     | github-copilot             |
-| `AI_MODEL_ID`        | gpt-5-mini                 |
-| `AI_REVIEW_MODEL_ID` | `AI_MODEL_ID` → gpt-5-mini |
-| `AI_ISSUE_MODEL_ID`  | `AI_MODEL_ID` → gpt-5-mini |
-| `AI_TASK_MODEL_ID`   | `AI_MODEL_ID` → gpt-5-mini |
+| Variable              | Default                    |
+| --------------------- | -------------------------- |
+| `AI_PROVIDER_ID`      | github-copilot             |
+| `AI_MODEL_ID`         | gpt-5-mini                 |
+| `AI_REVIEW_MODEL_ID`  | `AI_MODEL_ID` → gpt-5-mini |
+| `AI_ISSUE_MODEL_ID`   | `AI_MODEL_ID` → gpt-5-mini |
+| `AI_TASK_MODEL_ID`    | `AI_MODEL_ID` → gpt-5-mini |
+| `GOOGLE_CLOUD_REGION` | ""                         |
+| `DOMAIN` (optional)   | ""                         |
 
 ### GitHub Actions Secrets
 
@@ -143,8 +151,21 @@ Secrets and variables > Secrets**:
 | `COPILOT_ACCESS_TOKEN`  | ""      |
 | `COPILOT_REFRESH_TOKEN` | ""      |
 
+For Cloud Run deployment, add the following secrets:
+
+| Secret                              | Default |
+| ----------------------------------- | ------- |
+| `GOOGLE_CLOUD_PROJECT_ID`           | ""      |
+| `GOOGLE_CLOUD_PROJECT_NUMBER`       | ""      |
+| `GOOGLE_CLOUD_IDENTITY_POOL_ID`     | ""      |
+| `GOOGLE_CLOUD_IDENTITY_PROVIDER_ID` | ""      |
+| `UPSTASH_REDIS_REST_URL`            | ""      |
+| `UPSTASH_REDIS_REST_TOKEN`          | ""      |
+
 For details on how to set up GitHub Copilot authentication, see
-[Run AI Agent Workflow](docs/github-actions/run-ai-agent.md).
+[Run AI Agent Workflow](docs/github-actions/run-ai-agent.md). For Cloud Run
+setup, run `./scripts/setup-google-cloud.sh` after configuring the Google Cloud
+secrets above (see [Deployment](docs/github-actions/deployment.md)).
 
 ## 📦 Available Commands
 
@@ -183,6 +204,8 @@ project standards.
 | **Assign Labels**   | PR opened               | Automatically assigns labels based on branch naming convention         |
 | **Sync Labels**     | Manual dispatch         | Synchronizes repository labels with `.github/labels.yml` configuration |
 | **Display Details** | Manual dispatch         | Displays project, apps, and repository information                     |
+| **Cleanup Cache**   | Schedule/Manual         | Cleans up old GitHub Actions build caches                              |
+| **Deployment**      | Manual dispatch         | Deploys apps to Google Cloud Run                                       |
 | **Release Drafter** | Push/PR to main         | Creates and updates draft releases with categorized changes            |
 | **Tests**           | Push/PR to main/develop | Runs tests for affected apps and packages                              |
 | **Run AI Agent**    | Issue/PR comment        | Executes AI-powered code tasks via `/oc` or `/opencode` commands       |
@@ -195,9 +218,14 @@ configuration, and usage, see:
 - [assign-labels.md](docs/github-actions/assign-labels.md)
 - [sync-labels.md](docs/github-actions/sync-labels.md)
 - [display-details.md](docs/github-actions/display-details.md)
+- [cleanup-build-cache.md](docs/github-actions/cleanup-build-cache.md)
+- [deployment.md](docs/github-actions/deployment.md)
 - [release-drafter.md](docs/github-actions/release-drafter.md)
 - [tests.md](docs/github-actions/tests.md)
 - [run-ai-agent.md](docs/github-actions/run-ai-agent.md)
+
+For custom domain mapping to Cloud Run services, see
+[Mapping Domain](docs/mapping-domain.md).
 
 ## 📄 License
 
