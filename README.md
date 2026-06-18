@@ -1,8 +1,10 @@
-# Welcome to the Turborepo Starter!
+# Welcome to the Turborepo Starter with Cloud Run!
 
 This project serves as a boilerplate for efficiently developing applications
 using Turborepo, equipped with various best practices and carefully selected
-configurations.
+configurations. It extends the [Turborepo Starter](https://github.com/craftsamo/turborepo-starter)
+with a Google Cloud Run deployment pipeline, so you can go from clone to a
+deployed web service without wiring up the infrastructure yourself.
 
 ## 📖 Table of Contents
 
@@ -28,7 +30,7 @@ configurations.
 - **AI Agent Skills**: opencode on-demand skills (`.opencode/skills/`) with
   per-package `AGENTS.md` auto-loaded as instructions
 - **Cloud Run Deployment**: Google Cloud Run deployment pipeline with Workload
-  Identity Federation and Secret Manager
+  Identity Federation, Artifact Registry, and Secret Manager
 - **Best Practices**: Optimized configurations and development guidelines
 
 ## 🛠 Tech Stack
@@ -65,8 +67,8 @@ turborepo-starter-with-cloudrun/
 │   └── setup-google-cloud.sh  # Google Cloud resource initialization
 ├── docs/
 │   ├── github-actions/    # GitHub Actions workflow documentation
-│   ├── images/            # Documentation images
-│   └── instructions/      # GitHub-workflow guidelines for AI agents (GENERAL/ISSUE/TASK/REVIEW)
+│   ├── instructions/      # AI-agent guidelines (GENERAL/ISSUE/TASK/REVIEW)
+│   └── mapping-domain.md  # Custom domain mapping guide
 ├── .opencode/             # opencode skills and agent config
 ├── .github/               # GitHub Actions workflows
 └── .husky/                # Git hooks configuration
@@ -98,12 +100,15 @@ pnpm add -g nps
 
 3. **Configure local environment**
 
-Copy the example env file and fill in the values you need for local
+Copy the example env files and fill in the values you need for local
 development:
 
 ```sh
-cp apps/web/.env.example apps/web/.env   # BASE_URL, LOG_LEVEL (optional)
+cp apps/web/.env.example apps/web/.env   # web app (LOG_FORMAT, BASE_URL, Upstash Redis, ...)
 ```
+
+> The root `.env.example` is used by `scripts/setup-google-cloud.sh` for Google
+> Cloud provisioning and is not required for local development.
 
 4. **Run Development Server**
 
@@ -118,10 +123,13 @@ nps dev
 The web app reads runtime configuration from `apps/web/.env`. See
 `apps/web/.env.example` for the full list:
 
-| Variable     | Purpose                                                        |
-| ------------ | -------------------------------------------------------------- |
-| `BASE_URL`   | Base URL used for absolute links, sitemap, robots, and API calls |
-| `LOG_LEVEL`  | Logger verbosity: `verbose` / `debug` / `info` / `log` / `warn` / `error` / `fatal` (default: `info`) |
+| Variable                   | Purpose                                      |
+| -------------------------- | -------------------------------------------- |
+| `BASE_URL`                 | Base URL used for absolute links, sitemap, robots, and API calls |
+| `LOG_LEVEL`                | Logger verbosity: `verbose` / `debug` / `info` / `log` / `warn` / `error` / `fatal` (default: `info`) |
+| `LOG_FORMAT`               | Logger format: `text` (local) or `json` (Cloud Run) |
+| `UPSTASH_REDIS_REST_URL`   | Upstash Redis REST endpoint (used by the logger) |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST auth token                |
 
 ### GitHub Actions Variables
 
