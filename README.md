@@ -67,7 +67,8 @@ turborepo-starter-with-cloudrun/
 │   ├── ui/                # Shared UI components (Shadcn/ui)
 │   └── vitest/            # Shared Vitest configuration
 ├── scripts/
-│   └── setup-google-cloud.sh  # Google Cloud resource initialization
+│   └── setup/
+│       └── google/        # Google Cloud setup (cloud.mts, cloudrun.mts, lib.mts)
 ├── docs/
 │   ├── github-actions/    # GitHub Actions workflow documentation
 │   ├── instructions/      # AI-agent guidelines (GENERAL/ISSUE/TASK/REVIEW)
@@ -110,8 +111,9 @@ development:
 cp apps/web/.env.example apps/web/.env   # web app (LOG_FORMAT, BASE_URL, Upstash Redis, ...)
 ```
 
-> The root `.env.example` is used by `scripts/setup-google-cloud.sh` for Google
-> Cloud provisioning and is not required for local development.
+> The root `.env.example` lists the variables used by the Google Cloud setup
+> scripts under `scripts/setup/google/`. Provide them via a root `.env` or your
+> shell environment; they are not required for local development.
 
 4. **Run Development Server**
 
@@ -172,8 +174,9 @@ For Cloud Run deployment, add the following secrets:
 
 For details on how to set up GitHub Copilot authentication, see
 [Run AI Agent Workflow](docs/github-actions/run-ai-agent.md). For Cloud Run
-setup, run `./scripts/setup-google-cloud.sh` after configuring the Google Cloud
-secrets above (see [Deployment](docs/github-actions/deployment.md)).
+setup, run `nps setup.google` (requires an authenticated `gcloud` CLI) after
+configuring the Google Cloud values above (see
+[Deployment](docs/github-actions/deployment.md)).
 
 ## 📦 Available Commands
 
@@ -196,8 +199,14 @@ list.
 | `nps docker.build.web` | Build the web Docker image                  |
 | `nps docker.start.web` | Start the web container via docker-compose  |
 | `nps start`          | Start the built web app in production mode   |
+| `nps setup.google`   | Provision Google Cloud (foundation + Cloud Run) |
+| `nps setup.google.cloud` | Provision the shared Google Cloud foundation (WIF, github-sa) |
+| `nps setup.google.cloudrun` | Provision Cloud Run (runtime SA, roles, APIs) |
 
 > Single test file: `cd apps/web && pnpm test -- path/to/test.test.tsx`
+
+> Preview a Google Cloud provisioning run without making changes:
+> `DRY_RUN=1 nps setup.google` (prints the `gcloud` commands only).
 
 ## 🔄 GitHub Actions Workflows
 

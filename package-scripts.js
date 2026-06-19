@@ -14,6 +14,14 @@ module.exports = {
         web: `npx turbo prune --scope=web && cd out && pnpm install --frozen-lockfile`,
       },
     },
+    setup: {
+      default: `nps setup.google`,
+      google: {
+        default: `nps setup.google.cloud && nps setup.google.cloudrun`,
+        cloud: `node scripts/setup/google/cloud.mts`,
+        cloudrun: `node scripts/setup/google/cloudrun.mts`,
+      },
+    },
     lint: {
       default: `npx turbo run lint`,
       web: `npx turbo run lint --filter=web`,
