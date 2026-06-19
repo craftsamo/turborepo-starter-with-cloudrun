@@ -6,7 +6,7 @@
 ## Prerequisites
 
 - Google Cloud project with necessary permissions
-- Workload Identity Federation configured (via `setup-google-cloud.sh`)
+- Workload Identity Federation configured (via `nps setup.google`)
 - GitHub repository secrets and variables configured (see
   [Configuration](#configuration))
 - Docker configured in app directories (`apps/**/Dockerfile`)
@@ -387,7 +387,7 @@ The workflow will:
 
 **Solution**:
 
-1. Re-run setup script: `./scripts/setup-google-cloud.sh`
+1. Re-run setup: `nps setup.google` (or `nps setup.google.cloudrun`)
 2. Verify IAM roles were applied correctly in Google Cloud Console
 3. Check service account email in error matches configured service account
 
@@ -439,5 +439,5 @@ The workflow will:
 
 - [Cleanup Build Cache](./cleanup-build-cache.md) - Managing Docker build caches
 - [Mapping Domain](../mapping-domain.md) - Custom domain configuration
-- [Setup Script](../scripts/setup-google-cloud.sh) - Google Cloud resource
-  initialization
+- [Setup Scripts](../../scripts/setup/google/) - Google Cloud resource
+  initialization (`cloud.mts`, `cloudrun.mts`)
