@@ -35,7 +35,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
 
-      ## Authenticate using the service account set up in `setup-google-cloud.sh`
+      ## Authenticate using the service account set up by `nps setup.google` (scripts/setup/google/)
       - name: Auth GoogleCloud
         id: auth-google-cloud
         uses: google-github-actions/auth@v1
