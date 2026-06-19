@@ -46,15 +46,18 @@ spec:
               value: '${BASE_URL}'
 
             ## Secrets (from Secret Manager)
+            ## Secret names are prefixed with `${REPO_NAME}-${ENVIRONMENT}-` to
+            ## match the naming used in the deployment workflow
+            ## (`.github/workflows/deployment-common.yml`).
             - name: UPSTASH_REDIS_REST_URL
               valueFrom:
                 secretKeyRef:
-                  name: UPSTASH_REDIS_REST_URL
+                  name: ${REPO_NAME}-${ENVIRONMENT}-UPSTASH_REDIS_REST_URL
                   key: latest
             - name: UPSTASH_REDIS_REST_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: UPSTASH_REDIS_REST_TOKEN
+                  name: ${REPO_NAME}-${ENVIRONMENT}-UPSTASH_REDIS_REST_TOKEN
                   key: latest
           startupProbe:
             httpGet:
