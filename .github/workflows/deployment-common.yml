@@ -97,10 +97,11 @@ jobs:
           SERVICE="$PROJECT_NAME-$APP_NAME-$ENVIRONMENT"
           GOOGLE_CLOUD_PROJECT_NUMBER="${{ secrets.GOOGLE_CLOUD_PROJECT_NUMBER }}"
 
-          ## Environment variables specific to `apps/web`
-          if [ "$APP_NAME" == "web" ]; then
-            export SERVICE_ACCOUNT="$PROJECT_NAME-cloudrun-sa@$GOOGLE_CLOUD_PROJECT_ID.iam.gserviceaccount.com"
-          fi
+          ## Runtime service account: default for all Cloud Run apps
+          ## (provisioned by `nps setup.google.cloudrun`).
+          export SERVICE_ACCOUNT="$PROJECT_NAME-cloudrun-sa@$GOOGLE_CLOUD_PROJECT_ID.iam.gserviceaccount.com"
+          ## Per-app override: add an `if [ "$APP_NAME" == "<app>" ]` block below
+          ## only if a specific app needs a different service account.
 
           ## NOTE: ...increase as `apps/**` is added
           ## Common environment variables by mode
@@ -109,7 +110,7 @@ jobs:
             export BASE_URL="https://${DOMAIN:-"$PROJECT_NAME-$APP_NAME-$ENVIRONMENT-$GOOGLE_CLOUD_PROJECT_NUMBER.${{ vars.GOOGLE_CLOUD_REGION }}.run.app"}"
           else
             HOST=${DOMAIN:+dev.$DOMAIN}
-            export BASE_URL="https://${HOST:-$PROJECT_NAME-web-$ENVIRONMENT-$GOOGLE_CLOUD_PROJECT_NUMBER.${{ vars.GOOGLE_CLOUD_REGION }}.run.app}"
+            export BASE_URL="https://${HOST:-$PROJECT_NAME-$APP_NAME-$ENVIRONMENT-$GOOGLE_CLOUD_PROJECT_NUMBER.${{ vars.GOOGLE_CLOUD_REGION }}.run.app}"
           fi
 
           ## Common environment variables
