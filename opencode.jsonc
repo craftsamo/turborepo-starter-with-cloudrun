@@ -156,6 +156,7 @@
     },
     "skill": {
       "*": "ask",
+      "add-cloudrun-app": "allow",
       "add-error-code": "allow",
       "add-next-route": "allow",
       "add-redux-slice": "allow",
@@ -164,8 +165,10 @@
       "add-web-test": "allow",
       "edit-middleware": "allow",
       "fork-layer-placement": "allow",
+      "manage-deploy-secrets": "allow",
       "nextjs-rsc-streaming": "allow",
       "nextjs-server-action": "allow",
+      "setup-gcp-deploy": "allow",
       "sync-upstream": "allow"
     }
   }
